@@ -1,0 +1,230 @@
+import xarray as xr
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
+from scipy.stats import linregress
+import matplotlib.ticker as mticker
+
+# Load SST dataset
+file_path = "C:/Users/Janki/Downloads/MOMSIS/MOMSIS_SST_2011_2023_merged.nc"  # **REPLACE WITH YOUR FILE PATH**
+ds_sst = xr.open_dataset(file_path, decode_times=True)
+
+# Extract variables
+lat = ds_sst["yt_ocean"]
+lon = ds_sst["xt_ocean"]
+time_dates = pd.to_datetime(ds_sst["TIME"].values)
+sst = ds_sst["SST_REGRID"]
+
+# Define Antarctic latitude range (55°S–82°S)
+antarctic_mask = (lat >= -82) & (lat <= -55)
+
+# Apply the mask directly to the DataArray to preserve coordinates
+sst_antarctic = sst.where(antarctic_mask, drop=True)
+lat_filtered = lat.where(antarctic_mask, drop=True)
+
+# Function to calculate trend
+def calculate_trend(data, x):
+    return linregress(x, data)[0]  # Return only the slope
+
+# Function to compute trend for a given time period
+def compute_trend_period(sst_data, start_date, end_date):
+    # Mask time range
+    time_mask = (time_dates >= pd.Timestamp(start_date)) & (time_dates <= pd.Timestamp(end_date))
+    sst_period = sst_data.isel(TIME=time_mask)
+
+    # Resample to yearly averages
+    sst_yearly = sst_period.resample(TIME="YS").mean()
+
+    # Compute trend at each grid point
+    trend = xr.apply_ufunc(
+        calculate_trend,
+        sst_yearly,
+        input_core_dims=[["TIME"]],
+        output_core_dims=[[]],
+        vectorize=True,
+        kwargs={"x": np.arange(len(sst_yearly["TIME"]))},
+    )
+    return trend
+
+# Compute trend for 2005–2014
+trend_2005_2014 = compute_trend_period(sst_antarctic, "2005-01-01", "2014-12-31")
+
+# Compute trend for 2015–2023
+trend_2015_2023 = compute_trend_period(sst_antarctic, "2015-01-01", "2023-12-31")
+
+# Compute the difference between the two trends
+trend_diff = trend_2015_2023 - trend_2005_2014
+
+# Plot the difference map
+fig, ax = plt.subplots(figsize=(10, 10), subplot_kw={'projection': ccrs.SouthPolarStereo()})
+
+# Dynamic levels for the contour plot
+max_abs_diff = max(abs(np.nanmin(trend_diff.values)), abs(np.nanmax(trend_diff.values)))
+levels = np.linspace(-max_abs_diff, max_abs_diff, 21)
+
+# Plot the difference as filled contours
+diff_plot = ax.contourf(lon, lat_filtered, trend_diff, levels=levels, cmap=plt.cm.RdBu_r, extend='both', transform=ccrs.PlateCarree())
+
+
+
+land_feature = cfeature.NaturalEarthFeature('physical', 'land', '50m', edgecolor='k', facecolor='white')
+ax.add_feature(land_feature, color='lightgray')
+ax.add_feature(cfeature.COASTLINE, linewidth=1.0)
+ax.set_extent([-180, 180, -82, -55], crs=ccrs.PlateCarree())
+
+
+for lon_line in [20, 90, 160, 230, 300]:
+    ax.plot([lon_line, lon_line], [-90, -55], color='black', linestyle='-', linewidth=1.0, transform=ccrs.PlateCarree())
+
+ax.text(20, -55, '(20)', fontsize=10, color='black', transform=ccrs.PlateCarree())
+ax.text(90, -55, '(90)', fontsize=10, color='black', transform=ccrs.PlateCarree())
+ax.text(160, -55, '(160)', fontsize=10, color='black', transform=ccrs.PlateCarree())
+ax.text(230, -55, '(230)', fontsize=10, color='black', transform=ccrs.PlateCarree())
+ax.text(300, -55, '(300)', fontsize=10, color='black', transform=ccrs.PlateCarree())
+
+# Display mean values as text on the plot
+ax.text(40, -80, '(IO)', fontsize=14, color='black', transform=ccrs.PlateCarree())
+ax.text(120, -80, '(PO)', fontsize=14, color='black', transform=ccrs.PlateCarree())
+ax.text(200, -60, '(RS)', fontsize=14, color='black', transform=ccrs.PlateCarree())
+ax.text(260, -55, '(BAS)', fontsize=14, color='black', transform=ccrs.PlateCarree())
+ax.text(340, -65, '(WS)', fontsize=14, color='black', transform=ccrs.PlateCarree())
+
+# Customize gridlines
+gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=True, linewidth=1.0, color='gray', alpha=0.5, linestyle='--')
+gl.ylocator = mticker.FixedLocator([-90, -80, -70, -60])
+gl.ylabel_style = {'size': 10, 'color': 'black'}
+gl.xlabel_style = {'size': 10, 'color': 'black'}
+ax.axis('off')
+gl.xlines = False
+gl.xlines = False
+ax.set_xticks([])
+ax.set_yticks([])
+
+
+# Add colorbar
+cbar = plt.colorbar(diff_plot, ax=ax, orientation='vertical', shrink=0.6, label="SST Trend Difference (°C/year)")
+
+# Add title
+ax.set_title("SST Trends Difference (2015–2023 - 2005–2014) [°C/year]", fontsize=14)
+
+plt.show()  # Show the difference map'''
+
+
+
+# Load SIC dataset
+import xarray as xr
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
+from scipy.stats import linregress
+import matplotlib.ticker as mticker
+
+# Load SIC dataset
+file_path = "C:/Users/Janki/Downloads/MOMSIS_SIC_2000_2023)new.nc"  # Correct file path
+ds = xr.open_dataset(file_path, decode_times=True)
+
+# Extract variables
+lat = ds["yt_ocean"]
+lon = ds["xt_ocean"]
+time_dates = pd.to_datetime(ds["TIME"].values)
+sic = ds["CN_REGRID"]
+
+# Define Antarctic latitude range
+antarctic_mask = (lat >= -82) & (lat <= -55)
+lat_filtered = lat.where(antarctic_mask, drop=True)
+sic = sic.sel(yt_ocean=lat_filtered)
+
+# Convert SIC to fraction if it's in percentage (do this *before* subsetting time)
+if sic.max() > 1:
+    sic = sic / 100.0
+
+# Define time periods
+years_2005_2014 = (time_dates.year >= 2005) & (time_dates.year <= 2014)
+years_2015_2023 = (time_dates.year >= 2015) & (time_dates.year <= 2023)
+
+sic_2005_2014 = sic.sel(TIME=years_2005_2014)
+sic_2015_2023 = sic.sel(TIME=years_2015_2023)
+
+
+def compute_trend(sic_data):
+    trend = np.full((sic_data.sizes["yt_ocean"], sic_data.sizes["xt_ocean"]), np.nan)
+    x = np.arange(len(sic_data.TIME)) / 365.25  # Use 365.25 for leap years
+
+    for i in range(len(lat_filtered)):
+        for j in range(len(lon)):
+            y = sic_data[:, i, j].values  # Extract SIC time series
+            if np.isnan(y).all():  # Skip if all values are NaN
+                continue
+
+            # Remove NaN values before linear regression
+            valid_indices = ~np.isnan(y)
+            if np.sum(valid_indices) < 2:  # Need at least 2 points for linregress
+                continue
+
+            slope, _, _, _, _ = linregress(x[valid_indices], y[valid_indices])
+            trend[i, j] = slope * 100  # Convert to % per year
+    return trend
+
+
+trend_2005_2014 = compute_trend(sic_2005_2014)
+trend_2015_2023 = compute_trend(sic_2015_2023)
+
+trend_difference = trend_2015_2023 - trend_2005_2014
+
+
+# Convert to xarray DataArray
+trend_diff_da = xr.DataArray(trend_difference, coords={"yt_ocean": lat_filtered, "xt_ocean": lon},
+                             dims=["yt_ocean", "xt_ocean"])
+
+# Plotting (mostly the same, but with some improvements)
+fig, ax = plt.subplots(figsize=(10, 10), subplot_kw={'projection': ccrs.SouthPolarStereo()})
+
+
+levels = np.linspace(-2, 2, 30)  # Dynamic contour levels
+trend_diff_plot = ax.contourf(lon, lat_filtered, trend_diff_da, levels=levels, cmap=plt.cm.RdBu_r, extend='both', transform=ccrs.PlateCarree())  # Use trend_diff_da
+
+
+land_feature = cfeature.NaturalEarthFeature('physical', 'land', '50m', edgecolor='k', facecolor='white')
+ax.add_feature(land_feature, color='lightgray')
+ax.add_feature(cfeature.COASTLINE, linewidth=1.0)
+ax.set_extent([-180, 180, -82, -55], crs=ccrs.PlateCarree())
+
+
+for lon_line in [20, 90, 160, 230, 300]:
+    ax.plot([lon_line, lon_line], [-90, -55], color='black', linestyle='-', linewidth=1.0, transform=ccrs.PlateCarree())
+
+ax.text(20, -55, '(20)', fontsize=10, color='black', transform=ccrs.PlateCarree())
+ax.text(90, -55, '(90)', fontsize=10, color='black', transform=ccrs.PlateCarree())
+ax.text(160, -55, '(160)', fontsize=10, color='black', transform=ccrs.PlateCarree())
+ax.text(230, -55, '(230)', fontsize=10, color='black', transform=ccrs.PlateCarree())
+ax.text(300, -55, '(300)', fontsize=10, color='black', transform=ccrs.PlateCarree())
+
+# Display mean values as text on the plot
+ax.text(40, -80, '(IO)', fontsize=14, color='black', transform=ccrs.PlateCarree())
+ax.text(120, -80, '(PO)', fontsize=14, color='black', transform=ccrs.PlateCarree())
+ax.text(200, -60, '(RS)', fontsize=14, color='black', transform=ccrs.PlateCarree())
+ax.text(260, -55, '(BAS)', fontsize=14, color='black', transform=ccrs.PlateCarree())
+ax.text(340, -65, '(WS)', fontsize=14, color='black', transform=ccrs.PlateCarree())
+
+# Customize gridlines
+gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=True, linewidth=1.0, color='gray', alpha=0.5, linestyle='--')
+gl.ylocator = mticker.FixedLocator([-90, -80, -70, -60])
+gl.ylabel_style = {'size': 10, 'color': 'black'}
+gl.xlabel_style = {'size': 10, 'color': 'black'}
+ax.axis('off')
+gl.xlines = False
+gl.xlines = False
+ax.set_xticks([])
+ax.set_yticks([])
+
+
+# Add colorbar
+cbar = plt.colorbar(trend_diff_plot, ax=ax, orientation='vertical', shrink=0.6, label="SIC Trend Difference (% per year)")  # Add label
+ax.set_title("SIC Trends Difference (2015–2023 - 2005–2014) [% per year]", fontsize=14)
+
+# Show plot
+plt.show()
