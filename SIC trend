@@ -1,0 +1,150 @@
+
+
+import xarray as xr
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
+from scipy.stats import linregress
+import matplotlib.ticker as mticker
+
+# Load SIC dataset
+file_path = "C:/Users/Janki/Downloads/MOMSIS_SIC_2000_2023)new.nc"
+ds = xr.open_dataset(file_path, decode_times=True)
+
+# Extract variables
+lat = ds["yt_ocean"]
+lon = ds["xt_ocean"]
+time_dates = pd.to_datetime(ds["TIME"].values)
+sic = ds["CN_REGRID"]
+
+# Define Antarctic latitude range (55°S–82°S)
+antarctic_mask = (lat >= -82) & (lat <= -55)
+lat_filtered = lat.where(antarctic_mask, drop=True)
+sic = sic.sel(yt_ocean=lat_filtered)
+
+# Define time range (2015–2023)
+start_date = pd.Timestamp("2005-01-01")
+end_date = pd.Timestamp("2014-12-31")
+time_mask = (time_dates >= start_date) & (time_dates <= end_date)
+filtered_time_dates = time_dates[time_mask]
+
+# Filter SIC data for the selected time range
+sic = sic.isel(TIME=time_mask)
+
+# Convert SIC to fraction if it's in percentage
+if sic.max() > 1:
+    sic = sic / 100.0
+
+# Define SIC threshold for ice extent (15%)
+threshold = 0.15
+
+earth_radius = 6371  # km
+dlat = np.radians(np.abs(lat.diff(dim="yt_ocean")).mean().values)
+dlon = np.radians(np.abs(lon.diff(dim="xt_ocean")).mean().values)
+grid_area = (earth_radius**2) * dlat * dlon * np.cos(np.radians(lat_filtered))
+
+# Compute sea ice extent
+sea_ice_extent = ((sic >= threshold) * grid_area).sum(dim=("xt_ocean", "yt_ocean"))
+
+# Convert to Pandas DataFrame
+df = pd.DataFrame({"Date": filtered_time_dates, "Sea Ice Extent (million km²)": sea_ice_extent.values / 1e6})
+df.set_index('Date', inplace=True)
+
+# Compute yearly averages (using 'YE' anchor for end of year)
+df_yearly_avg = df.resample('YE').mean()
+
+# Perform linear regression
+x = np.arange(len(df_yearly_avg))
+y = df_yearly_avg["Sea Ice Extent (million km²)"].values
+slope, intercept, r_value, p_value, _ = linregress(x, y)
+
+slope_km2_per_year = slope * 1e6
+
+print(f"Sea Ice Extent Trend: {slope_km2_per_year:.0f} km² per year")
+print(f"P-value: {p_value:.3f}")
+
+# Plot yearly averaged sea ice extent
+plt.figure(figsize=(10, 5))
+plt.plot(df_yearly_avg.index.year, df_yearly_avg["Sea Ice Extent (million km²)"], marker="o", linestyle="-", color="b", label="Yearly Avg Sea Ice Extent")
+plt.plot(df_yearly_avg.index.year, slope * x + intercept, color="r", linestyle="--", label=f"Least Squares Fit: y = {slope:.3f}x + {intercept:.3f}")
+plt.text(df_yearly_avg.index.year[-1], slope * x[-1] + intercept, f"Slope = {slope_km2_per_year:.0f} km² per year\nP-value = {p_value:.3f}", color="r", fontsize=10, ha='left', va='center')
+plt.xticks(df_yearly_avg.index.year)
+plt.gca().xaxis.set_major_locator(mticker.MultipleLocator(1))
+plt.grid(True)
+plt.xlabel("Year")
+plt.ylabel("Extent (million km²)")
+plt.title("Yearly Average Antarctic Sea Ice Extent (55°S–82°S, 2015-2023)")
+plt.legend()
+
+# 2nd part
+
+# Ensure SIC is in fraction (0 to 1)
+if sic.max() > 1:
+    sic = sic / 100.0  # Convert from % to fraction
+
+# Compute trend for each grid cell in % per year
+trend = np.full((sic.sizes["yt_ocean"], sic.sizes["xt_ocean"]), np.nan)  # Initialize with NaNs
+x = np.arange(len(filtered_time_dates)) / 365.0  # Convert time indices to years
+
+for i in range(len(lat_filtered)):
+    for j in range(len(lon)):
+        y = sic[:, i, j].values  # Extract SIC time series for this grid cell
+        if np.isnan(y).all():  # Skip if all values are NaN
+            continue
+        slope, _, _, _, _ = linregress(x, y)  # Compute trend in fraction per year
+        trend[i, j] = slope * 100  # Convert to % per year
+
+# Convert trend array back to xarray DataArray for easier plotting
+trend_da = xr.DataArray(trend, coords={"yt_ocean": lat_filtered, "xt_ocean": lon}, dims=["yt_ocean", "xt_ocean"])
+
+# Now `trend_da` contains SIC trend in **% per year**
+
+# Plot the trend map
+fig, ax = plt.subplots(figsize=(10, 10), subplot_kw={'projection': ccrs.SouthPolarStereo()})
+
+levels = np.linspace(-2, 2, 30)  # Dynamic contour levels
+trend_plot = ax.contourf(lon, lat_filtered, trend, levels=levels, cmap=plt.cm.RdBu_r, extend='both', transform=ccrs.PlateCarree())
+
+
+land_feature = cfeature.NaturalEarthFeature('physical', 'land', '50m', edgecolor='k', facecolor='white')
+ax.add_feature(land_feature, color='lightgray')
+ax.add_feature(cfeature.COASTLINE, linewidth=1.0)
+ax.set_extent([-180, 180, -82, -55], crs=ccrs.PlateCarree())
+
+
+for lon_line in [20, 90, 160, 230, 300]:
+    ax.plot([lon_line, lon_line], [-90, -55], color='black', linestyle='-', linewidth=1.0, transform=ccrs.PlateCarree())
+
+ax.text(20, -55, '(20)', fontsize=10, color='black', transform=ccrs.PlateCarree())
+ax.text(90, -55, '(90)', fontsize=10, color='black', transform=ccrs.PlateCarree())
+ax.text(160, -55, '(160)', fontsize=10, color='black', transform=ccrs.PlateCarree())
+ax.text(230, -55, '(230)', fontsize=10, color='black', transform=ccrs.PlateCarree())
+ax.text(300, -55, '(300)', fontsize=10, color='black', transform=ccrs.PlateCarree())
+
+# Display mean values as text on the plot
+ax.text(40, -80, '(IO)', fontsize=14, color='black', transform=ccrs.PlateCarree())
+ax.text(120, -80, '(PO)', fontsize=14, color='black', transform=ccrs.PlateCarree())
+ax.text(200, -60, '(RS)', fontsize=14, color='black', transform=ccrs.PlateCarree())
+ax.text(260, -55, '(BAS)', fontsize=14, color='black', transform=ccrs.PlateCarree())
+ax.text(340, -65, '(WS)', fontsize=14, color='black', transform=ccrs.PlateCarree())
+
+# Customize gridlines
+gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=True, linewidth=1.0, color='gray', alpha=0.5, linestyle='--')
+gl.ylocator = mticker.FixedLocator([-90, -80, -70, -60])
+gl.ylabel_style = {'size': 10, 'color': 'black'}
+gl.xlabel_style = {'size': 10, 'color': 'black'}
+ax.axis('off')
+gl.xlines = False
+gl.xlines = False
+ax.set_xticks([])
+ax.set_yticks([])
+
+
+cbar = plt.colorbar(trend_plot, ax=ax, orientation='vertical', shrink=0.6, label="SIC Trend (% per year)")
+
+ax.set_title("Antarctic SIC Trend (2005-2014) [% per year]", fontsize=14)
+
+# Show plot
+plt.show()
